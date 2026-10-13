@@ -1,0 +1,1 @@
+# Uniwersalny-konwerter-plik-w
