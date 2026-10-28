@@ -1,0 +1,2 @@
+Uniwersalny konwerter plików
+Przykładowy tekst z polskimi znakami: ą ć ę ł ń ó ś ź ż.
