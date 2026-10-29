@@ -9,6 +9,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+from xml.sax.saxutils import escape
 
 from docx import Document
 from reportlab.lib.pagesizes import A4
@@ -70,6 +71,30 @@ def _read_text(path: Path) -> str:
         raise ValueError("Plik nie jest poprawnym tekstem UTF-8.") from exc
 
 
+def _write_pdf(paragraphs: list[str], target: Path) -> None:
+    styles = getSampleStyleSheet()
+    font_candidates = [
+        Path("C:/Windows/Fonts/arial.ttf"),
+        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
+        Path("/Library/Fonts/Arial.ttf"),
+    ]
+    font_name = "Helvetica"
+    for font_path in font_candidates:
+        if font_path.exists():
+            try:
+                pdfmetrics.registerFont(TTFont("UnicodeFont", str(font_path)))
+                font_name = "UnicodeFont"
+                break
+            except Exception:
+                pass
+    styles["Normal"].fontName = font_name
+    story = []
+    for paragraph in paragraphs or [""]:
+        story.append(Paragraph(escape(paragraph) or " ", styles["Normal"]))
+        story.append(Spacer(1, 6))
+    SimpleDocTemplate(str(target), pagesize=A4).build(story)
+
+
 @converter(".csv", ".json")
 def csv_to_json(source: Path, output_dir: Path) -> Path:
     with source.open("r", encoding="utf-8-sig", newline="") as f:
@@ -125,28 +150,7 @@ def docx_to_txt(source: Path, output_dir: Path) -> Path:
 def txt_to_pdf(source: Path, output_dir: Path) -> Path:
     text = _read_text(source)
     target = safe_output_path(output_dir, source.stem, ".pdf")
-    styles = getSampleStyleSheet()
-    # Rejestrujemy popularny font Unicode, jeśli jest dostępny, aby zachować polskie znaki.
-    font_candidates = [
-        Path("C:/Windows/Fonts/arial.ttf"),
-        Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
-        Path("/Library/Fonts/Arial.ttf"),
-    ]
-    font_name = "Helvetica"
-    for font_path in font_candidates:
-        if font_path.exists():
-            try:
-                pdfmetrics.registerFont(TTFont("UnicodeFont", str(font_path)))
-                font_name = "UnicodeFont"
-                break
-            except Exception:
-                pass
-    styles["Normal"].fontName = font_name
-    story = []
-    for line in text.splitlines() or [""]:
-        story.append(Paragraph(line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") or " ", styles["Normal"]))
-        story.append(Spacer(1, 6))
-    SimpleDocTemplate(str(target), pagesize=A4).build(story)
+    _write_pdf(text.splitlines(), target)
     return target
 
 
@@ -167,7 +171,10 @@ def _libreoffice_path() -> str | None:
 def docx_to_pdf(source: Path, output_dir: Path) -> Path:
     executable = _libreoffice_path()
     if not executable:
-        raise RuntimeError("Nie znaleziono LibreOffice. Zainstaluj LibreOffice i uruchom aplikację ponownie.")
+        document = Document(source)
+        target = safe_output_path(output_dir, source.stem, ".pdf")
+        _write_pdf([paragraph.text for paragraph in document.paragraphs], target)
+        return target
     # LibreOffice sam tworzy plik o nazwie źródła, dlatego używamy tymczasowego katalogu.
     import tempfile
     with tempfile.TemporaryDirectory(prefix="konwerter_") as temp:
